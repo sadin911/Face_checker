@@ -4,6 +4,7 @@ import mediapipe as mp
 import numpy as np
 import time
 import os
+import platform
 from PIL import Image
 
 # --- Setup MediaPipe Tasks ---
@@ -12,9 +13,16 @@ from mediapipe.tasks.python import vision
 
 # Model configuration
 model_path = 'face_landmarker.task'
+IS_WINDOWS = platform.system() == "Windows"
 
 @st.cache_resource
 def load_detector():
+    if not os.path.exists(model_path):
+        # Fallback: Try to download if missing (useful for Cloud)
+        import urllib.request
+        url = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+        urllib.request.urlretrieve(url, model_path)
+        
     base_options = python.BaseOptions(model_asset_path=model_path)
     options = vision.FaceLandmarkerOptions(
         base_options=base_options,
@@ -23,11 +31,11 @@ def load_detector():
         num_faces=1)
     return vision.FaceLandmarker.create_from_options(options)
 
-# Load detector once
-if os.path.exists(model_path):
+# Load detector
+try:
     detector = load_detector()
-else:
-    st.error(f"Model file '{model_path}' not found. Please ensure it is downloaded.")
+except Exception as e:
+    st.error(f"Failed to initialize Mediapipe: {e}")
     st.stop()
 
 # --- App Layout ---
@@ -128,7 +136,11 @@ selected_tab = st.sidebar.radio("Navigation", ["🔴 Live Check", "📸 Capture"
 
 if selected_tab == "🔴 Live Check":
     st.subheader("🔴 Real-time Biometric Diagnostic")
-    st.info("Continuous analysis using local camera. Toggle below to start.")
+    
+    if not IS_WINDOWS:
+        st.warning("⚠️ **Live Check** Mode (OpenCV) is mainly for local development on Windows. If you are on Streamlit Cloud or Linux, please use the **Capture** or **Upload** tabs.")
+    else:
+        st.info("Continuous analysis using local camera. Toggle below to start.")
     
     col_cam, col_info = st.columns([2, 1])
     
@@ -142,7 +154,9 @@ if selected_tab == "🔴 Live Check":
         frame_placeholder = st.empty()
         
         if run_live:
-            vid = cv2.VideoCapture(int(cam_index), cv2.CAP_DSHOW)
+            # Use CAP_DSHOW only on Windows
+            cap_flag = cv2.CAP_DSHOW if IS_WINDOWS else cv2.CAP_ANY
+            vid = cv2.VideoCapture(int(cam_index), cap_flag)
             if not vid.isOpened():
                 st.error(f"Could not open camera at index {cam_index}.")
                 run_live = False
